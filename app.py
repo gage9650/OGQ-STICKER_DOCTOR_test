@@ -29,9 +29,6 @@ from market_analysis import (
 from ogq_market import OGQAPIError, search_by_keywords
 from user_store import (
     create_user,
-    create_login_session,
-    delete_login_session,
-    get_username_by_session,
     load_user_diagnosis_history,
     save_diagnosis_record,
     verify_user,
@@ -39,6 +36,9 @@ from user_store import (
     load_reviews_for_record,
     load_public_reviews,
     load_all_reviews,
+    create_login_session,
+    get_username_by_session,
+    delete_login_session,
 )
 from report_utils import (
     build_pdf_report,
@@ -51,420 +51,328 @@ st.set_page_config(
     page_title="OGQ 스티커 닥터",
     page_icon="🩺",
     layout="wide",
-    initial_sidebar_state="expanded",
 )
 
-# 브라우저 새로고침으로 Streamlit Session State가 초기화되어도
-# 브라우저 세션 쿠키를 통해 로그인 상태를 복원한다.
-# CookieController는 세션마다 별도로 생성해 다른 브라우저/탭의 쿠키 상태가
-# 섞이지 않도록 한다.
+# 새로고침 시에도 같은 브라우저 세션에서는 로그인 상태를 복원합니다.
 if "_sd_cookie_controller" not in st.session_state:
     st.session_state["_sd_cookie_controller"] = CookieController(key="sd_cookie_controller")
 _cookie_controller = st.session_state["_sd_cookie_controller"]
 RemoveEmptyElementContainer()
 
+
 st.markdown(
     """
     <style>
     /* =========================================================
-       STICKER DOCTOR — NEW UI SYSTEM
-       Visual direction: product-led landing pages + creator studio
-       inspired by the supplied reference sites, without copying them.
-       Functional Python/UI logic is untouched.
+       DESIGN ONLY: inspired by the uploaded index.html reference
+       No functional logic is defined here.
        ========================================================= */
-    @import url('https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap');
-    
+    @import url('https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;500;700;800&display=swap');
+
     :root {
-      --sd-bg: #f6f8fc;
-      --sd-surface: #ffffff;
-      --sd-surface-2: #eef3ff;
-      --sd-ink: #111827;
-      --sd-muted: #6b7280;
-      --sd-line: #dfe5ef;
-      --sd-blue: #536dff;
-      --sd-blue-dark: #3547c9;
-      --sd-cyan: #55c7ff;
-      --sd-mint: #57dfb1;
-      --sd-lilac: #bba6ff;
-      --sd-yellow: #ffe27a;
-      --sd-danger: #ff6b83;
-      --sd-radius: 22px;
-      --sd-shadow: 0 16px 44px rgba(40, 52, 92, .08);
-      --sd-shadow-hover: 0 22px 52px rgba(40, 52, 92, .14);
+        --sd-primary: #FF5D8F;
+        --sd-accent: #FFD23F;
+        --sd-mint: #2FCB8A;
+        --sd-sky: #3AB6F0;
+        --sd-bg: #EEF1FF;
+        --sd-card: #FFFFFF;
+        --sd-ink: #1B1B3A;
+        --sd-muted: #6B6D8F;
+        --sd-line: #1B1B3A;
+        --sd-radius: 20px;
     }
-    
+
     html, body, [data-testid="stAppViewContainer"] {
-      background:
-        radial-gradient(circle at 88% 8%, rgba(83,109,255,.11), transparent 24%),
-        radial-gradient(circle at 8% 30%, rgba(87,223,177,.09), transparent 18%),
-        var(--sd-bg) !important;
+        background: var(--sd-bg) !important;
     }
-    
     [data-testid="stAppViewContainer"] > .main {
-      padding-top: 1rem;
-      padding-bottom: 4rem;
+        padding-top: 1.1rem;
+        padding-bottom: 4rem;
     }
-    
-    [data-testid="stHeader"] { background: rgba(246,248,252,.72) !important; }
-    footer { visibility: hidden; height: 0; }
-    
-    .block-container {
-      max-width: 1280px !important;
-      padding-left: clamp(.75rem, 2.8vw, 2rem) !important;
-      padding-right: clamp(.75rem, 2.8vw, 2rem) !important;
+    [data-testid="stHeader"] {
+        background: transparent !important;
     }
-    
+    [data-testid="stToolbar"] {
+        display: none !important;
+    }
+    footer {
+        visibility: hidden;
+        height: 0;
+    }
+
     /* Typography */
     h1, h2, h3, h4, [data-testid="stMetricValue"] {
-      font-family: 'Jua', 'Noto Sans KR', sans-serif !important;
-      color: var(--sd-ink) !important;
-      letter-spacing: -.025em;
+        font-family: 'Jua', 'Noto Sans KR', sans-serif !important;
+        color: var(--sd-ink) !important;
+        letter-spacing: -0.02em;
     }
-    h1 { font-size: clamp(2.15rem, 4vw, 3.7rem) !important; line-height: 1.06 !important; }
-    h2 { font-size: clamp(1.55rem, 2.3vw, 2.05rem) !important; line-height: 1.14 !important; }
-    h3 { font-size: 1.24rem !important; }
-    p, span, label, div, button, input, textarea, select { font-family: 'Noto Sans KR', system-ui, sans-serif; }
-    [data-testid="stCaptionContainer"] { color: var(--sd-muted) !important; }
-    
-    /* Sidebar — clean creator workspace */
-    section[data-testid="stSidebar"] {
-      background: rgba(255,255,255,.94) !important;
-      border-right: 1px solid var(--sd-line) !important;
-      box-shadow: 12px 0 36px rgba(40,52,92,.04);
+    p, span, label, div, button, input, textarea, select {
+        font-family: 'Noto Sans KR', system-ui, sans-serif;
     }
-    section[data-testid="stSidebar"] > div {
-      padding-top: 1rem;
+    h1 { font-size: clamp(2rem, 4vw, 3.2rem) !important; line-height: 1.15 !important; }
+    h2 { font-size: clamp(1.35rem, 2.2vw, 1.8rem) !important; }
+    h3 { font-size: 1.15rem !important; }
+
+    /* Streamlit content width */
+    .block-container {
+        max-width: 1240px !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
     }
-    section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h3 {
-      font-size: 1.05rem !important;
-      margin-bottom: .3rem;
-    }
-    section[data-testid="stSidebar"] [data-testid="stSuccessMessage"] {
-      border-radius: 14px !important;
-    }
-    section[data-testid="stSidebar"] [data-testid="stButton"] button {
-      min-height: 40px;
-    }
-    
-    /* Top hero */
+
+    /* Hero / brand */
     .hero-banner {
-      position: relative;
-      overflow: hidden;
-      background:
-        radial-gradient(circle at 88% 10%, rgba(255,255,255,.18), transparent 22%),
-        radial-gradient(circle at 72% 110%, rgba(87,223,177,.24), transparent 24%),
-        linear-gradient(135deg, #111a3a 0%, #243674 56%, #536dff 100%);
-      color: #fff;
-      border: 1px solid rgba(255,255,255,.12);
-      border-radius: 30px;
-      box-shadow: 0 24px 60px rgba(34,50,110,.20);
-      padding: clamp(28px, 5vw, 54px);
-      margin: 0 0 22px 0;
+        background: var(--sd-primary);
+        color: var(--sd-ink);
+        border: 3px solid var(--sd-line);
+        border-radius: var(--sd-radius);
+        box-shadow: 5px 5px 0 var(--sd-line);
+        padding: 30px 32px;
+        margin: 0 0 22px 0;
     }
-    .hero-banner::after {
-      content: "";
-      position: absolute;
-      width: 240px; height: 240px;
-      right: -90px; top: -90px;
-      border-radius: 50%;
-      border: 1px solid rgba(255,255,255,.18);
-      box-shadow: 0 0 0 24px rgba(255,255,255,.04), 0 0 0 48px rgba(255,255,255,.025);
+    .hero-banner h1, .hero-banner h2, .hero-banner p {
+        color: var(--sd-ink) !important;
     }
-    .hero-banner h1, .hero-banner h2, .hero-banner p { color: #fff !important; position: relative; z-index: 2; }
-    .hero-banner p { max-width: 65ch; margin-top: 12px; margin-bottom: 0; color: rgba(255,255,255,.82) !important; font-weight: 500; }
-    
-    .sd-kicker {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      color: var(--sd-blue-dark);
-      background: #edf1ff;
-      border: 1px solid #d7defe;
-      border-radius: 999px;
-      padding: 6px 11px;
-      font-size: .74rem;
-      letter-spacing: .09em;
-      font-weight: 800;
-      margin-bottom: 12px;
+    .hero-banner p {
+        font-weight: 500;
+        max-width: 62ch;
+        margin-bottom: 0;
     }
-    .hero-banner .sd-kicker { background: rgba(255,255,255,.11); color: #fff; border-color: rgba(255,255,255,.22); }
-    
-    /* Flow / process ribbon */
-    .sd-flow {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 10px;
-      margin: 6px 0 24px;
+
+    /* Top login caption */
+    [data-testid="stCaptionContainer"] {
+        color: var(--sd-muted);
     }
-    .sd-flow-item {
-      position: relative;
-      background: rgba(255,255,255,.9);
-      border: 1px solid var(--sd-line);
-      border-radius: 16px;
-      padding: 12px 14px;
-      font-size: .82rem;
-      font-weight: 800;
-      color: var(--sd-ink);
-      box-shadow: 0 8px 22px rgba(40,52,92,.05);
-    }
-    .sd-flow-item::before {
-      content: "";
-      width: 7px; height: 7px;
-      border-radius: 50%;
-      background: var(--sd-blue);
-      display: inline-block;
-      margin-right: 8px;
-      vertical-align: 1px;
-    }
-    .sd-flow-arrow { display:none; }
-    
-    /* Main nav tabs */
+
+    /* Tabs: pill navigation like the reference */
     [data-testid="stTabs"] [data-baseweb="tab-list"] {
-      gap: 24px;
-      background: transparent !important;
-      border-bottom: 1px solid var(--sd-line);
-      margin-bottom: 28px;
+        gap: 10px;
+        background: transparent;
+        margin-bottom: 18px;
     }
     [data-testid="stTabs"] [data-baseweb="tab"] {
-      height: 48px;
-      padding: 0 2px;
-      border: 0 !important;
-      border-radius: 0 !important;
-      background: transparent !important;
-      color: #7b8496;
-      font-size: .96rem;
-      font-weight: 800;
-      box-shadow: none !important;
-      transition: color .2s ease, transform .2s ease;
+        height: 46px;
+        padding: 0 20px;
+        border: 3px solid var(--sd-line);
+        border-radius: 999px;
+        background: var(--sd-card);
+        color: var(--sd-ink);
+        box-shadow: 3px 3px 0 var(--sd-line);
+        font-family: 'Jua', 'Noto Sans KR', sans-serif;
+        font-size: 1rem;
+        font-weight: 400;
     }
-    [data-testid="stTabs"] [data-baseweb="tab"]:hover { color: var(--sd-ink); transform: translateY(-1px); }
     [data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"] {
-      color: var(--sd-ink) !important;
+        background: var(--sd-accent);
+        color: var(--sd-ink);
     }
-    [data-testid="stTabs"] [data-baseweb="tab-highlight"] {
-      height: 3px !important;
-      background: var(--sd-blue) !important;
-      border-radius: 99px 99px 0 0;
+    [data-testid="stTabs"] [data-baseweb="tab-highlight"],
+    [data-testid="stTabs"] [data-baseweb="tab-border"] {
+        display: none;
     }
-    [data-testid="stTabs"] [data-baseweb="tab-border"] { display:none; }
-    
-    /* Buttons — every button gets a subtle motion */
+
+    /* Buttons: reference-style pop / lift animation */
     [data-testid="stButton"] button,
     [data-testid="stFormSubmitButton"] button,
     [data-testid="stDownloadButton"] button {
-      border: 1px solid #d7ddea !important;
-      border-radius: 14px !important;
-      background: #fff !important;
-      color: var(--sd-ink) !important;
-      min-height: 42px;
-      font-weight: 800 !important;
-      box-shadow: 0 6px 14px rgba(44,55,95,.06) !important;
-      transition: transform .18s cubic-bezier(.2,.85,.2,1), box-shadow .18s ease, background .18s ease, border-color .18s ease !important;
-      will-change: transform;
+        border: 3px solid var(--sd-line) !important;
+        border-radius: 999px !important;
+        background: var(--sd-accent) !important;
+        color: var(--sd-ink) !important;
+        box-shadow: 3px 3px 0 var(--sd-line) !important;
+        font-weight: 800 !important;
+        min-height: 42px;
+        transition: transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .18s ease, filter .18s ease !important;
+        will-change: transform;
     }
     [data-testid="stButton"] button:hover,
     [data-testid="stFormSubmitButton"] button:hover,
     [data-testid="stDownloadButton"] button:hover {
-      transform: translateY(-2px) scale(1.015);
-      box-shadow: 0 12px 24px rgba(44,55,95,.12) !important;
-      border-color: #c5d0ec !important;
-      background: #fbfcff !important;
+        transform: translateY(-2px) scale(1.035) rotate(-.3deg);
+        box-shadow: 5px 5px 0 var(--sd-line) !important;
+        filter: saturate(1.06);
     }
     [data-testid="stButton"] button:active,
     [data-testid="stFormSubmitButton"] button:active,
     [data-testid="stDownloadButton"] button:active {
-      transform: translateY(1px) scale(.99) !important;
-      box-shadow: 0 4px 9px rgba(44,55,95,.08) !important;
+        transform: translate(2px, 2px) scale(.985) !important;
+        box-shadow: 1px 1px 0 var(--sd-line) !important;
     }
-    /* Primary actions */
-    [data-testid="stButton"] button[kind="primary"],
-    [data-testid="stFormSubmitButton"] button[kind="primary"] {
-      background: var(--sd-blue) !important;
-      color: #fff !important;
-      border-color: var(--sd-blue) !important;
-      box-shadow: 0 10px 22px rgba(83,109,255,.23) !important;
+
+    /* Extra decorative UI */
+    .sd-flow {
+        display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin: 4px 0 22px;
     }
-    [data-testid="stButton"] button[kind="primary"]:hover,
-    [data-testid="stFormSubmitButton"] button[kind="primary"]:hover {
-      background: var(--sd-blue-dark) !important;
-      border-color: var(--sd-blue-dark) !important;
-      box-shadow: 0 16px 30px rgba(83,109,255,.28) !important;
+    .sd-flow-item {
+        background:var(--sd-card); border:2px solid var(--sd-line); border-radius:999px;
+        box-shadow:2px 2px 0 var(--sd-line); padding:7px 12px; font-size:.8rem; font-weight:800;
     }
-    
-    /* Input fields */
+    .sd-flow-arrow { font-weight:900; color:var(--sd-muted); }
+    .score-wrap {
+        display:grid; grid-template-columns: 220px 1fr; gap:24px; align-items:center;
+        background:var(--sd-card); border:3px solid var(--sd-line); border-radius:24px;
+        box-shadow:5px 5px 0 var(--sd-line); padding:24px; margin: 10px 0 18px;
+    }
+    .score-ring {
+        --score: 0; width:184px; height:184px; border-radius:50%;
+        background: conic-gradient(var(--sd-primary) calc(var(--score) * 1%), #E4E7FF 0);
+        border:3px solid var(--sd-line); box-shadow:4px 4px 0 var(--sd-line);
+        display:grid; place-items:center; position:relative; margin:auto;
+        transform:rotate(-8deg); transition:transform .25s ease;
+    }
+    .score-ring:hover { transform:rotate(-3deg) scale(1.025); }
+    .score-ring::after {
+        content:""; position:absolute; inset:18px; border-radius:50%;
+        background:var(--sd-card); border:3px solid var(--sd-line);
+        box-shadow:inset 0 0 0 1px rgba(27,27,58,.06);
+    }
+    .score-center { position:relative; z-index:2; text-align:center; transform:rotate(8deg); }
+    .score-center .num { font-family:'Jua','Noto Sans KR',sans-serif; font-size:2.55rem; line-height:1; }
+    .score-center .unit { color:var(--sd-muted); font-size:.8rem; font-weight:800; margin-top:4px; }
+    .score-info h3 { margin:0 0 8px; font-size:1.35rem !important; }
+    .score-info p { margin:0 0 16px; color:var(--sd-muted); }
+    .score-badges { display:flex; flex-wrap:wrap; gap:8px; }
+    .score-badge { border:2px solid var(--sd-line); border-radius:999px; padding:6px 10px; font-size:.78rem; font-weight:800; background:var(--sd-bg); }
+    .score-badge.good { background:var(--sd-mint); }
+    .score-badge.warn { background:var(--sd-accent); }
+    .score-badge.bad { background:var(--sd-primary); }
+    .sd-mini-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:0 0 22px; }
+    .sd-mini { background:var(--sd-card); border:2px solid var(--sd-line); border-radius:16px; box-shadow:3px 3px 0 var(--sd-line); padding:12px 14px; }
+    .sd-mini b { display:block; font-family:'Jua','Noto Sans KR',sans-serif; font-size:1.1rem; margin-bottom:2px; }
+    .sd-mini span { color:var(--sd-muted); font-size:.76rem; font-weight:700; }
+    @media (max-width: 860px) {
+        .score-wrap { grid-template-columns:1fr; text-align:center; }
+        .score-badges { justify-content:center; }
+        .sd-mini-grid { grid-template-columns:1fr 1fr; }
+    }
+
+    /* Inputs */
     [data-testid="stTextInput"] input,
     [data-testid="stTextArea"] textarea,
     [data-testid="stNumberInput"] input,
-    [data-testid="stSelectbox"] [data-baseweb="select"],
-    [data-testid="stMultiSelect"] [data-baseweb="select"] {
-      border: 1px solid var(--sd-line) !important;
-      background: rgba(255,255,255,.92) !important;
-      color: var(--sd-ink) !important;
-      box-shadow: 0 4px 12px rgba(44,55,95,.04) !important;
-      border-radius: 14px !important;
-      transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease !important;
+    [data-testid="stSelectbox"] > div > div,
+    [data-testid="stMultiSelect"] > div > div {
+        border: 2px solid var(--sd-line) !important;
+        border-radius: 999px !important;
+        background: #fff !important;
+        color: var(--sd-ink) !important;
     }
-    [data-testid="stTextInput"] input:focus,
-    [data-testid="stTextArea"] textarea:focus { border-color: #aebdff !important; box-shadow: 0 0 0 4px rgba(83,109,255,.11) !important; }
-    [data-testid="stTextArea"] textarea { border-radius: 16px !important; }
-    
-    /* Uploader */
+    [data-testid="stTextArea"] textarea {
+        border-radius: 20px !important;
+        padding: 12px 16px !important;
+    }
+    [data-testid="stCheckbox"] label,
+    [data-testid="stRadio"] label {
+        color: var(--sd-ink) !important;
+    }
+
+    /* File uploader */
     [data-testid="stFileUploaderDropzone"] {
-      border: 1px dashed #aeb9cc !important;
-      border-radius: 22px !important;
-      background: linear-gradient(180deg,#ffffff 0%,#f8faff 100%) !important;
-      padding: 24px !important;
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,.8), 0 8px 24px rgba(44,55,95,.04);
-    }
-    [data-testid="stFileUploaderDropzone"]:hover {
-      border-color: var(--sd-blue) !important;
-      background: #f7f9ff !important;
+        border: 3px dashed var(--sd-line) !important;
+        border-radius: var(--sd-radius) !important;
+        background: rgba(255,255,255,.8) !important;
+        padding: 18px !important;
     }
     [data-testid="stFileUploaderDropzone"] button {
-      border: 1px solid #cbd4ea !important;
-      border-radius: 12px !important;
-      background: #fff !important;
-      color: var(--sd-ink) !important;
-      font-weight: 800 !important;
+        border: 2px solid var(--sd-line) !important;
+        border-radius: 999px !important;
+        background: var(--sd-primary) !important;
+        color: var(--sd-ink) !important;
+        font-weight: 800 !important;
     }
-    
-    /* Metrics / result cards */
-    [data-testid="stMetric"] {
-      background: var(--sd-surface);
-      border: 1px solid var(--sd-line);
-      border-radius: 18px;
-      box-shadow: var(--sd-shadow);
-      padding: 16px 18px;
-    }
-    [data-testid="stMetricLabel"] { color: var(--sd-muted) !important; font-weight: 700; }
-    
-    /* Expanders and bordered containers */
-    [data-testid="stExpander"],
-    [data-testid="stVerticalBlockBorderWrapper"] {
-      border: 1px solid var(--sd-line) !important;
-      border-radius: 20px !important;
-      background: rgba(255,255,255,.96) !important;
-      box-shadow: var(--sd-shadow) !important;
-      overflow: hidden;
+
+    /* Cards / expanders */
+    [data-testid="stExpander"] {
+        border: 3px solid var(--sd-line) !important;
+        border-radius: var(--sd-radius) !important;
+        background: var(--sd-card) !important;
+        box-shadow: 4px 4px 0 var(--sd-line) !important;
+        overflow: hidden;
+        margin: 12px 0;
     }
     [data-testid="stExpander"] summary {
-      font-weight: 800 !important;
-      color: var(--sd-ink) !important;
+        font-family: 'Jua', 'Noto Sans KR', sans-serif !important;
+        color: var(--sd-ink) !important;
     }
-    
-    /* Status/alert cards */
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        border: 3px solid var(--sd-line) !important;
+        border-radius: var(--sd-radius) !important;
+        box-shadow: 4px 4px 0 var(--sd-line) !important;
+        background: var(--sd-card) !important;
+    }
+
+    /* Metrics */
+    [data-testid="stMetric"] {
+        background: var(--sd-card);
+        border: 3px solid var(--sd-line);
+        border-radius: var(--sd-radius);
+        box-shadow: 4px 4px 0 var(--sd-line);
+        padding: 14px 16px;
+    }
+    [data-testid="stMetricLabel"] { color: var(--sd-muted) !important; font-weight: 700; }
+
+    /* Alerts */
     [data-testid="stAlert"] {
-      border-radius: 16px !important;
-      border-width: 1px !important;
+        border-radius: 18px !important;
+        border-width: 2px !important;
     }
-    
+
     /* Progress */
-    [data-testid="stProgressBar"] > div {
-      background: #e8edfa !important;
-      border-radius: 99px !important;
-    }
     [data-testid="stProgressBar"] > div > div > div {
-      background: linear-gradient(90deg, var(--sd-blue), var(--sd-cyan)) !important;
-      border-radius: 99px !important;
+        background: var(--sd-sky) !important;
+        border-radius: 999px !important;
     }
-    
+    [data-testid="stProgressBar"] > div {
+        border: 2px solid var(--sd-line);
+        border-radius: 999px;
+        background: #fff;
+    }
+
     /* Images */
     [data-testid="stImage"] img {
-      border: 1px solid var(--sd-line);
-      border-radius: 18px;
-      background: #fff;
-      box-shadow: 0 10px 28px rgba(44,55,95,.08);
+        border: 3px solid var(--sd-line);
+        border-radius: 18px;
+        background: #fff;
     }
-    
-    /* Markdown/code blocks */
-    [data-testid="stMarkdownContainer"] code {
-      background: #f0f3f8;
-      border: 1px solid #e2e7ef;
-      border-radius: 7px;
-      padding: 1px 5px;
-    }
-    
+
+    /* Divider */
     hr {
-      border: 0 !important;
-      border-top: 1px solid var(--sd-line) !important;
-      margin: 28px 0 !important;
+        border: 0 !important;
+        border-top: 3px dashed rgba(27,27,58,.24) !important;
+        margin: 28px 0 !important;
     }
-    
-    /* Score ring — retain the existing functional score variables */
-    .score-wrap {
-      display: grid;
-      grid-template-columns: 240px 1fr;
-      gap: 26px;
-      align-items: center;
-      background: var(--sd-surface);
-      border: 1px solid var(--sd-line);
-      border-radius: 26px;
-      box-shadow: var(--sd-shadow);
-      padding: 28px;
-      margin: 12px 0 20px;
+
+    /* Select sliders */
+    [data-testid="stSlider"] [role="slider"] {
+        background: var(--sd-primary) !important;
+        border: 2px solid var(--sd-line) !important;
     }
-    .score-ring {
-      --score: 0;
-      width: 190px;
-      height: 190px;
-      border-radius: 50%;
-      background: conic-gradient(var(--sd-blue) calc(var(--score) * 1%), #e9edfa 0);
-      border: 1px solid #d5dcf0;
-      box-shadow: 0 14px 34px rgba(83,109,255,.15);
-      display: grid;
-      place-items: center;
-      position: relative;
-      margin: auto;
-      transition: transform .22s ease, box-shadow .22s ease;
+
+    /* Small design accents */
+    .sd-kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        border: 2px solid var(--sd-line);
+        border-radius: 999px;
+        background: var(--sd-card);
+        font-size: .78rem;
+        font-weight: 800;
+        color: var(--sd-ink);
+        margin-bottom: 10px;
     }
-    .score-ring:hover { transform: translateY(-3px) scale(1.02); box-shadow: 0 20px 40px rgba(83,109,255,.19); }
-    .score-ring::after {
-      content: "";
-      position: absolute;
-      inset: 14px;
-      border-radius: 50%;
-      background: #fff;
-      border: 1px solid #edf0f7;
+    .sd-note {
+        background: rgba(255,255,255,.72);
+        border: 2px dashed rgba(27,27,58,.3);
+        border-radius: 16px;
+        padding: 11px 14px;
     }
-    .score-center { position:relative; z-index:2; text-align:center; }
-    .score-center .num { font-family:'Jua','Noto Sans KR',sans-serif; font-size:2.75rem; line-height:1; color:var(--sd-ink); }
-    .score-center .unit { color:var(--sd-muted); font-size:.78rem; font-weight:800; margin-top:6px; }
-    .score-info h3 { margin:0 0 8px; font-size:1.5rem !important; }
-    .score-info p { margin:0 0 16px; color:var(--sd-muted); }
-    .score-badges { display:flex; flex-wrap:wrap; gap:8px; }
-    .score-badge { border:1px solid #e1e6f0; border-radius:999px; padding:7px 11px; font-size:.77rem; font-weight:800; background:#f8faff; }
-    .score-badge.good { background:#e7fbf4; color:#087c5d; border-color:#b7eedb; }
-    .score-badge.warn { background:#fff7d6; color:#8b6a00; border-color:#f2e2a3; }
-    .score-badge.bad { background:#ffe8ed; color:#b93250; border-color:#ffc2ce; }
-    
-    /* Compact information blocks used throughout results */
-    .sd-mini-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:0 0 22px; }
-    .sd-mini { background:rgba(255,255,255,.88); border:1px solid var(--sd-line); border-radius:16px; box-shadow:0 8px 24px rgba(44,55,95,.05); padding:13px 14px; }
-    .sd-mini b { display:block; font-family:'Jua','Noto Sans KR',sans-serif; font-size:1.08rem; margin-bottom:2px; }
-    .sd-mini span { color:var(--sd-muted); font-size:.75rem; font-weight:700; }
-    .sd-note { background:#f8faff; border:1px solid #dfe6f6; border-radius:14px; padding:10px 13px; color:var(--sd-muted); }
-    
-    /* Section title rhythm */
-    [data-testid="stMarkdownContainer"] h2 { margin-top: 8px; }
-    
-    /* Mobile */
-    @media (max-width: 900px) {
-      .sd-flow { grid-template-columns: 1fr 1fr; }
-      .score-wrap { grid-template-columns:1fr; text-align:center; }
-      .score-badges { justify-content:center; }
-      .sd-mini-grid { grid-template-columns:1fr 1fr; }
-      [data-testid="stTabs"] [data-baseweb="tab-list"] { gap: 14px; overflow-x:auto; }
-    }
-    @media (max-width: 560px) {
-      .hero-banner { padding: 24px 20px; border-radius: 22px; }
-      .sd-flow { grid-template-columns: 1fr; }
-      .sd-mini-grid { grid-template-columns:1fr; }
-      .score-ring { width:165px; height:165px; }
-    }
-    
-    /* Respect accessibility settings */
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+
+    @media (max-width: 860px) {
+        .block-container { padding-left: .7rem !important; padding-right: .7rem !important; }
+        .hero-banner { padding: 22px; }
+        [data-testid="stTabs"] [data-baseweb="tab"] { padding: 0 13px; font-size: .9rem; }
     }
     </style>
     """,
@@ -473,23 +381,16 @@ st.markdown(
 
 
 def _restore_auth_from_cookie() -> str | None:
-    """브라우저 세션 쿠키가 있으면 현재 Streamlit 세션으로 로그인 상태를 복원한다.
-
-    새로고침 직후에는 Streamlit Session State가 초기화되므로 먼저
-    네이티브 요청 쿠키를 확인하고, 필요하면 CookieController를 fallback으로 사용한다.
-    """
+    """브라우저 세션 쿠키가 있으면 현재 Streamlit 세션으로 로그인 상태를 복원합니다."""
     if st.session_state.get("auth_user"):
         return str(st.session_state["auth_user"])
 
     session_token = None
-
-    # Streamlit이 현재 연결의 브라우저 쿠키를 직접 제공하는 경우를 우선 사용한다.
     try:
         session_token = st.context.cookies.get("sd_session_token")
     except Exception:
         session_token = None
 
-    # 네이티브 쿠키가 아직 보이지 않는 첫 렌더링에서는 component fallback을 사용한다.
     if not session_token:
         try:
             session_token = _cookie_controller.get("sd_session_token")
@@ -502,23 +403,19 @@ def _restore_auth_from_cookie() -> str | None:
             st.session_state["auth_user"] = username
             st.session_state["auth_session_token"] = str(session_token)
             return username
-
     return None
 
 
 def _set_auth_cookie(username: str) -> bool:
-    """로그인 세션 쿠키를 브라우저에 저장한다. 만료일을 지정하지 않아 브라우저 세션 동안 유지한다."""
     token = create_login_session(username)
     if not token:
         return False
-
     try:
         secure = str(getattr(st.context, "url", "")).startswith("https://")
     except Exception:
         secure = False
-
     try:
-        # max_age/expires를 지정하지 않아 브라우저 세션 동안 유지한다.
+        # 만료일을 지정하지 않아 브라우저를 닫으면 세션이 종료됩니다.
         _cookie_controller.set(
             "sd_session_token",
             token,
@@ -529,7 +426,6 @@ def _set_auth_cookie(username: str) -> bool:
     except Exception:
         delete_login_session(token)
         return False
-
     st.session_state["auth_user"] = username.strip()
     st.session_state["auth_session_token"] = token
     return True
@@ -545,15 +441,20 @@ def _logout() -> None:
         pass
     st.session_state.pop("auth_user", None)
     st.session_state.pop("auth_session_token", None)
-    # remove() 역시 브라우저에 비동기 적용되므로 잠깐 기다린 후 재실행한다.
-    time.sleep(0.8)
+    time.sleep(0.5)
     st.rerun()
 
 
 def _render_auth_gate() -> str | None:
-    """아이디/비밀번호 로그인. 새로고침 시 브라우저 세션 쿠키로 복원한다."""
+    """아이디/비밀번호 로그인. 새로고침 시 브라우저 세션 쿠키로 복원합니다."""
     restored_user = _restore_auth_from_cookie()
     if restored_user:
+        with st.sidebar:
+            st.markdown("### 👤 로그인 상태")
+            st.success(f"{restored_user}님")
+            st.caption("현재 로그인한 계정")
+            if st.button("로그아웃", key="auth_logout"):
+                _logout()
         return restored_user
 
     st.markdown(
@@ -576,12 +477,10 @@ def _render_auth_gate() -> str | None:
             clean_username = username.strip()
             if verify_user(clean_username, password):
                 if _set_auth_cookie(clean_username):
-                    # CookieController는 브라우저에 비동기적으로 쿠키를 적용하므로
-                    # 즉시 rerun하지 않고 잠깐 기다린 뒤 새 세션으로 전환한다.
-                    time.sleep(0.8)
+                    time.sleep(0.7)
                     st.rerun()
                 else:
-                    st.error("로그인 세션을 저장하지 못했습니다. 페이지를 새로고침한 뒤 다시 시도해주세요.")
+                    st.error("로그인 세션을 저장하지 못했습니다. 다시 시도해주세요.")
             else:
                 st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
 
@@ -601,22 +500,13 @@ def _render_auth_gate() -> str | None:
                 else:
                     st.error(message)
 
-    st.caption("로그인 상태는 브라우저 세션 쿠키에 저장되어 새로고침해도 유지됩니다. 직접 로그아웃하면 즉시 종료됩니다.")
+    st.caption("로그인 상태는 브라우저 세션 동안 유지되며, 직접 로그아웃하면 즉시 종료됩니다.")
     return None
 
 
 current_user = _render_auth_gate()
 if not current_user:
     st.stop()
-
-# 로그인한 상태에서는 새로고침으로 Session State가 초기화되더라도
-# 사이드바의 계정 정보와 로그아웃 버튼은 항상 다시 렌더링한다.
-with st.sidebar:
-    st.markdown("### 👤 로그인 상태")
-    st.success(f"{current_user}님")
-    st.caption("현재 로그인된 계정")
-    if st.button("로그아웃", key="auth_logout", use_container_width=True):
-        _logout()
 
 st.markdown(
     """
@@ -704,95 +594,65 @@ def _draw_annotations(file_bytes: bytes, findings: list[dict]) -> Image.Image:
 
 
 def _speak_completion(message: str = "") -> None:
-    """진단 완료 시 짧고 선명한 2음 벨소리를 재생한다.
+    """진단 완료 시 브라우저에서 짧은 2음 벨소리(띠링)를 재생한다.
 
-    브라우저 자동재생 정책 때문에 자동 재생이 차단될 수 있어, 같은 화면에
-    수동 재생 버튼도 제공한다. 음량은 이전 버전보다 높였다.
+    기존 음성 합성(TTS)은 사용하지 않는다. 브라우저의 자동재생 정책에 의해
+    소리가 차단될 경우를 대비해 수동 재생 버튼을 함께 제공한다.
     """
-    import math
-    import struct
-    import wave
-
-    # 0.48초 / 44.1kHz / 16-bit mono의 간단한 2음 벨소리 생성
-    rate = 44100
-    duration = 0.48
-    frames = []
-    for i in range(int(rate * duration)):
-        t = i / rate
-        if t < 0.18:
-            freq = 880.0
-            local_t = t
-            amp = 0.88 * min(1.0, local_t / 0.012)
-        elif t < 0.26:
-            freq = 1174.66
-            local_t = t - 0.18
-            amp = 0.82 * min(1.0, local_t / 0.012)
-        else:
-            freq = 1318.51
-            local_t = t - 0.26
-            amp = 0.78 * max(0.0, 1.0 - local_t / 0.22)
-        envelope = max(0.0, 1.0 - t / duration)
-        sample = int(32767 * amp * envelope * math.sin(2 * math.pi * freq * t))
-        frames.append(struct.pack("<h", sample))
-
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wav:
-        wav.setnchannels(1)
-        wav.setsampwidth(2)
-        wav.setframerate(rate)
-        wav.writeframes(b"".join(frames))
-
-    audio_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
     components.html(
-        f"""
-        <div style="font-family:sans-serif;padding:2px 0;">
-          <button id="ding-btn" style="border:1px solid #BFEFE9;border-radius:999px;padding:7px 14px;background:#EEFBF9;color:#0B3B36;font-weight:700;cursor:pointer;">🔔 완료음 다시 듣기</button>
-          <audio id="ding-audio" preload="auto" playsinline src="data:audio/wav;base64,{audio_b64}"></audio>
+        """
+        <div style="font-family:sans-serif; padding:2px 0;">
+          <button id="ding-btn" style="border:1px solid #BFEFE9;border-radius:999px;padding:7px 14px;background:#EEFBF9;color:#0B3B36;font-weight:600;cursor:pointer;">🔔 완료음 다시 듣기</button>
         </div>
         <script>
-        (() => {{
-          const audio = document.getElementById('ding-audio');
-          const btn = document.getElementById('ding-btn');
-          function playDing() {{
-            try {{
-              audio.currentTime = 0;
-              audio.volume = 1.0;
-              const p = audio.play();
-              if (p && p.catch) p.catch(() => {{}});
-              return;
-            }} catch (_) {{}}
-            try {{
-              const AC = window.AudioContext || window.webkitAudioContext;
-              if (!AC) return;
-              const ctx = new AC();
-              if (ctx.state === 'suspended') ctx.resume();
-              const gain = ctx.createGain();
+        (() => {
+          let played = false;
+
+          function ding() {
+            try {
+              const AudioContext = window.AudioContext || window.webkitAudioContext;
+              if (!AudioContext) return;
+
+              const ctx = new AudioContext();
               const now = ctx.currentTime;
+
+              const gain = ctx.createGain();
               gain.gain.setValueAtTime(0.0001, now);
-              gain.gain.exponentialRampToValueAtTime(0.78, now + 0.012);
-              gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.46);
+              gain.gain.exponentialRampToValueAtTime(0.42, now + 0.015);
+              gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
               gain.connect(ctx.destination);
-              const freqs = [880, 1174.66, 1318.51];
-              const starts = [0.00, 0.18, 0.26];
-              const stops = [0.18, 0.26, 0.46];
-              freqs.forEach((f, i) => {{
-                const osc = ctx.createOscillator();
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(f, now + starts[i]);
-                osc.connect(gain);
-                osc.start(now + starts[i]);
-                osc.stop(now + stops[i]);
-              }});
-              setTimeout(() => {{ try {{ ctx.close(); }} catch (_) {{}} }}, 700);
-            }} catch (_) {{}}
-          }}
-          btn?.addEventListener('click', playDing);
-          // 자동 재생이 허용된 브라우저에서는 즉시 재생
-          setTimeout(playDing, 120);
-        }})();
+
+              const osc1 = ctx.createOscillator();
+              osc1.type = 'sine';
+              osc1.frequency.setValueAtTime(880, now);
+              osc1.frequency.exponentialRampToValueAtTime(1320, now + 0.10);
+              osc1.connect(gain);
+
+              const osc2 = ctx.createOscillator();
+              osc2.type = 'sine';
+              osc2.frequency.setValueAtTime(1320, now + 0.12);
+              osc2.frequency.exponentialRampToValueAtTime(1760, now + 0.22);
+              osc2.connect(gain);
+
+              osc1.start(now);
+              osc1.stop(now + 0.11);
+              osc2.start(now + 0.12);
+              osc2.stop(now + 0.28);
+
+              setTimeout(() => { try { ctx.close(); } catch (_) {} }, 650);
+              played = true;
+            } catch (_) {
+              // 브라우저 자동재생/AudioContext 제한 시 수동 버튼으로 재생 가능
+            }
+          }
+
+          const btn = document.getElementById('ding-btn');
+          btn?.addEventListener('click', ding);
+          setTimeout(() => { if (!played) ding(); }, 100);
+        })();
         </script>
         """,
-        height=48,
+        height=45,
     )
 
 
@@ -884,62 +744,7 @@ def _build_history_payload(
     }
 
 
-def _save_current_result_to_history(
-    current_user: str,
-    all_file_results: list[dict],
-    selected_criteria: list[str],
-    custom_rules: list[str],
-    feelings: str,
-    user_tags: list[str],
-    checklist_done: int,
-    checklist_total: int,
-) -> int | None:
-    """현재 검사 결과를 한 번 저장하고, 같은 결과에서 리뷰를 연결할 수 있도록 한다."""
-    existing_id = st.session_state.get("current_history_record_id")
-    if existing_id:
-        return int(existing_id)
-
-    grades = [
-        grade
-        for file_result in all_file_results
-        for grade, _, _ in file_result.get("results", [])
-    ]
-    pass_count = grades.count("pass")
-    warn_count = grades.count("warn")
-    fail_count = grades.count("fail")
-    score = compute_score(all_file_results, checklist_done, checklist_total)
-
-    record_id = save_diagnosis_record(
-        current_user,
-        score=score,
-        pass_count=pass_count,
-        warn_count=warn_count,
-        fail_count=fail_count,
-        checklist_done=checklist_done,
-        checklist_total=checklist_total,
-        file_count=len(all_file_results),
-        market_keywords=_keywords_from_user_input(feelings, user_tags, limit=5),
-        diagnosis_payload=_build_history_payload(
-            all_file_results,
-            selected_criteria,
-            custom_rules,
-            feelings,
-            user_tags,
-        ),
-    )
-    if record_id:
-        st.session_state["current_history_record_id"] = record_id
-    return record_id
-
-
-def _get_history_record(current_user: str, record_id: int) -> dict | None:
-    for record in load_user_diagnosis_history(current_user, limit=100):
-        if int(record.get("id", -1)) == int(record_id):
-            return record
-    return None
-
-
-def _render_review_for_history(current_user: str, record: dict, developer_mode: bool = False, form_context: str = "history") -> None:
+def _render_review_for_history(current_user: str, record: dict, developer_mode: bool = False) -> None:
     """선택한 히스토리에 대한 사용자 리뷰를 입력하고 기존 리뷰를 보여준다."""
     st.subheader("📝 이 진단에 대한 리뷰")
     st.caption("리뷰는 다음 AI 피드백을 개선하기 위한 데이터로 활용할 수 있습니다. 한 진단당 한 번 작성하며, 다시 제출하면 수정됩니다.")
@@ -947,13 +752,10 @@ def _render_review_for_history(current_user: str, record: dict, developer_mode: 
     existing = load_reviews_for_record(record["id"], include_developer_only=True)
     own = next((r for r in existing if r.get("username") == current_user), None)
 
-    form_key = f"review_form_{form_context}_{record['id']}"
-    widget_prefix = f"review_{form_context}_{record['id']}"
-
-    with st.form(form_key):
-        overall = st.slider("전체 만족도", 1, 5, int(own["overall_rating"]) if own else 4, key=f"{widget_prefix}_overall")
-        usefulness = st.slider("도움이 된 정도", 1, 5, int(own["usefulness_rating"]) if own else 4, key=f"{widget_prefix}_usefulness")
-        accuracy = st.slider("진단 정확도", 1, 5, int(own["accuracy_rating"]) if own else 4, key=f"{widget_prefix}_accuracy")
+    with st.form(f"review_form_history_{record['id']}"):
+        overall = st.slider("전체 만족도", 1, 5, int(own["overall_rating"]) if own else 4)
+        usefulness = st.slider("도움이 된 정도", 1, 5, int(own["usefulness_rating"]) if own else 4)
+        accuracy = st.slider("진단 정확도", 1, 5, int(own["accuracy_rating"]) if own else 4)
         issue_tags = st.multiselect(
             "아쉬웠던 부분 (여러 개 선택 가능)",
             [
@@ -967,13 +769,11 @@ def _render_review_for_history(current_user: str, record: dict, developer_mode: 
                 "특별한 아쉬움 없음",
             ],
             default=(own.get("issue_tags", []) if own else []),
-            key=f"{widget_prefix}_issue_tags",
         )
         comment = st.text_area(
             "추가 의견",
             value=(own.get("comment", "") if own else ""),
             placeholder="예: 시장의 유사 스티커는 잘 찾았지만, 왜 비슷한지 설명이 조금 더 구체적이면 좋겠습니다.",
-            key=f"{widget_prefix}_comment",
         )
         visibility_label = st.radio(
             "리뷰 공개 범위",
@@ -981,7 +781,6 @@ def _render_review_for_history(current_user: str, record: dict, developer_mode: 
             index=0 if not own or own.get("visibility") == "public" else 1,
             horizontal=True,
             help="모두 공개: 다른 사용자도 볼 수 있습니다. 개발자만 보기: 개발자 계정만 볼 수 있습니다.",
-            key=f"{widget_prefix}_visibility",
         )
         submitted = st.form_submit_button("리뷰 저장", type="primary")
 
@@ -1017,6 +816,128 @@ def _render_review_for_history(current_user: str, record: dict, developer_mode: 
                 st.caption(" · ".join(review["issue_tags"]))
             if review.get("comment"):
                 st.write(review["comment"])
+
+
+def _save_current_diagnosis_to_history(
+    current_user: str,
+    all_file_results: list[dict],
+    selected_criteria: list[str],
+    custom_rules: list[str],
+    feelings: str,
+    user_tags: list[str],
+) -> int | None:
+    """현재 진단 결과를 한 번만 저장하고 record id를 세션에 기억합니다."""
+    run_key_material = "|".join(
+        f"{fr.get('name','')}:{hashlib.sha256(fr.get('bytes', b'')).hexdigest()}"
+        for fr in all_file_results
+    )
+    run_key = hashlib.sha256(run_key_material.encode("utf-8")).hexdigest()
+
+    if (
+        st.session_state.get("current_history_run_key") == run_key
+        and st.session_state.get("current_history_record_id")
+    ):
+        return int(st.session_state["current_history_record_id"])
+
+    grades = [
+        grade
+        for fr in all_file_results
+        for grade, _, _ in fr.get("results", [])
+    ]
+    checklist_status = {
+        label: bool(st.session_state.get(f"chk_{key}", False))
+        for label, key in {
+            "저작권 있는 폰트를 상업적으로 이용 가능한 라이선스로만 사용했다": "font_license",
+            "생성형 AI 사용 여부와 관련 규정을 확인했다": "ai_rule_check",
+            "다른 판매자의 기존 콘텐츠와 차별화되는 요소가 있다": "no_duplicate",
+            "텍스트가 잘리지 않고 세이프존 안에 들어와 있다": "text_safezone",
+            "욕설·폭력·선정성·정치/종교 관련 부적합 요소가 없다": "no_sensitive_content",
+        }.items()
+    }
+    checklist_done = sum(checklist_status.values())
+    checklist_total = len(checklist_status)
+    record_id = save_diagnosis_record(
+        current_user,
+        score=compute_score(all_file_results, checklist_done, checklist_total),
+        pass_count=grades.count("pass"),
+        warn_count=grades.count("warn"),
+        fail_count=grades.count("fail"),
+        checklist_done=checklist_done,
+        checklist_total=checklist_total,
+        file_count=len(all_file_results),
+        market_keywords=_keywords_from_user_input(feelings, user_tags, limit=5),
+        diagnosis_payload=_build_history_payload(
+            all_file_results,
+            selected_criteria,
+            custom_rules,
+            feelings,
+            user_tags,
+        ),
+    )
+    if record_id:
+        st.session_state["current_history_run_key"] = run_key
+        st.session_state["current_history_record_id"] = int(record_id)
+    return record_id
+
+
+def _render_immediate_review(current_user: str, record_id: int) -> None:
+    """검사 완료 직후 같은 화면에서 리뷰를 남길 수 있게 합니다."""
+    history = load_user_diagnosis_history(current_user, limit=50)
+    record = next((item for item in history if int(item.get("id", -1)) == int(record_id)), None)
+    if not record:
+        st.error("방금 완료한 진단 기록을 불러오지 못했습니다. 히스토리 탭에서 확인해주세요.")
+        return
+    with st.expander("💬 방금 받은 AI 진단 리뷰 남기기", expanded=True):
+        existing = load_reviews_for_record(record_id, include_developer_only=True)
+        own = next((r for r in existing if r.get("username") == current_user), None)
+        with st.form(f"review_form_immediate_{record_id}"):
+            overall = st.slider("전체 만족도", 1, 5, int(own["overall_rating"]) if own else 4, key=f"immediate_overall_{record_id}")
+            usefulness = st.slider("도움이 된 정도", 1, 5, int(own["usefulness_rating"]) if own else 4, key=f"immediate_usefulness_{record_id}")
+            accuracy = st.slider("진단 정확도", 1, 5, int(own["accuracy_rating"]) if own else 4, key=f"immediate_accuracy_{record_id}")
+            issue_tags = st.multiselect(
+                "아쉬웠던 부분 (여러 개 선택 가능)",
+                [
+                    "문제 위치가 부정확함",
+                    "시장 비교가 부정확함",
+                    "비슷한 콘텐츠 판단이 아쉬움",
+                    "설명이 너무 일반적임",
+                    "수정 방법이 구체적이지 않음",
+                    "오탈자/텍스트 인식이 부정확함",
+                    "결과가 너무 길거나 복잡함",
+                    "특별한 아쉬움 없음",
+                ],
+                default=(own.get("issue_tags", []) if own else []),
+                key=f"immediate_issue_tags_{record_id}",
+            )
+            comment = st.text_area(
+                "추가 의견",
+                value=(own.get("comment", "") if own else ""),
+                placeholder="예: 시장 비교는 좋았지만 문제 위치를 조금 더 정확하게 표시해주면 좋겠습니다.",
+                key=f"immediate_comment_{record_id}",
+            )
+            visibility_label = st.radio(
+                "리뷰 공개 범위",
+                ["모두 공개", "개발자만 보기"],
+                index=0 if not own or own.get("visibility") == "public" else 1,
+                horizontal=True,
+                key=f"immediate_visibility_{record_id}",
+            )
+            submitted = st.form_submit_button("리뷰 저장", type="primary")
+        if submitted:
+            saved = save_review(
+                current_user, record_id,
+                overall_rating=overall,
+                usefulness_rating=usefulness,
+                accuracy_rating=accuracy,
+                issue_tags=issue_tags,
+                comment=comment,
+                visibility="public" if visibility_label == "모두 공개" else "developer",
+            )
+            if saved:
+                st.success("리뷰가 저장됐어요. 다음 AI 개선에 활용할 수 있습니다.")
+                st.rerun()
+            else:
+                st.error("리뷰 저장에 실패했습니다.")
 
 
 def _render_history_detail(current_user: str, record: dict, developer_mode: bool = False) -> None:
@@ -1089,7 +1010,7 @@ def _render_history_detail(current_user: str, record: dict, developer_mode: bool
                     for result in custom_results:
                         st.write(f"{result.get('status', '판단 어려움')} · {result.get('criterion', '')}: {result.get('result', '')}")
 
-    _render_review_for_history(current_user, record, developer_mode=developer_mode, form_context="history")
+    _render_review_for_history(current_user, record, developer_mode=developer_mode)
 
 
 def _render_history_center(current_user: str) -> None:
@@ -1111,19 +1032,8 @@ def _render_history_center(current_user: str) -> None:
         avg = sum(float(h.get("score") or 0) for h in history) / max(1, len(history))
         st.metric("평균 점수", f"{avg:.0f}")
 
-    graph_scores = []
-    for h in history:
-        try:
-            value = float(h.get("score"))
-        except (TypeError, ValueError):
-            continue
-        if value == value:  # NaN guard
-            graph_scores.append(value)
-
-    if len(graph_scores) >= 2:
-        st.line_chart({"점수": graph_scores}, height=220)
-    elif len(graph_scores) == 1:
-        st.caption("진단 기록이 1개라 점수 변화 그래프는 2회차부터 표시됩니다.")
+    if len(history) >= 2:
+        st.line_chart({"score": [h["score"] for h in history]})
 
     labels = {
         h["id"]: f"검사 #{h['id']} · {h['timestamp']} · {h['score']:.0f}점 · 파일 {h['file_count']}개"
@@ -1453,6 +1363,15 @@ with tab_check:
     )
 
     if files:
+        current_upload_material = "|".join(
+            f"{f.name}:{hashlib.sha256(f.getvalue()).hexdigest()}" for f in files
+        )
+        current_upload_key = hashlib.sha256(current_upload_material.encode("utf-8")).hexdigest()
+        if st.session_state.get("current_upload_key") != current_upload_key:
+            st.session_state["current_upload_key"] = current_upload_key
+            st.session_state.pop("current_history_run_key", None)
+            st.session_state.pop("current_history_record_id", None)
+
         type_counts = {name: 0 for name in SPECS}
         all_file_results = []
 
@@ -1630,7 +1549,6 @@ with tab_check:
                         )
                     st.session_state["auto_diag_completed_for_market_key"] = auto_key
                     st.success("시장 비교에 이어 AI 문제 표시까지 완료했어요.")
-                    st.markdown("**🔔 시장 비교 + AI 진단 완료**")
                     _speak_completion("시장 비교와 AI 문제 진단이 모두 완료되었습니다.")
 
         market_results = st.session_state.get("market_results", [])
@@ -1841,6 +1759,29 @@ with tab_check:
                 else:
                     st.info("이미지에서 위치를 특정할 수 있는 개선 항목이 없습니다.")
 
+        # ---------- 검사 완료 직후 리뷰 ----------
+        if diagnosis_texts:
+            st.divider()
+            st.header("💬 검사 결과 리뷰")
+            st.caption("지금 받은 진단이 실제로 도움이 되었는지 바로 남겨주세요. 리뷰를 저장하면 다음 AI 피드백 개선에 활용할 수 있습니다.")
+            current_record_id = st.session_state.get("current_history_record_id")
+            if current_record_id:
+                _render_immediate_review(current_user, int(current_record_id))
+            elif st.button("📝 이 검사 결과에 리뷰 남기기", type="secondary"):
+                record_id = _save_current_diagnosis_to_history(
+                    current_user,
+                    all_file_results,
+                    selected_criteria,
+                    custom_rules,
+                    feelings,
+                    user_tags,
+                )
+                if record_id:
+                    st.session_state["current_history_record_id"] = int(record_id)
+                    st.rerun()
+                else:
+                    st.error("리뷰를 저장할 진단 기록을 만들지 못했습니다.")
+
         # ---------- 5단계: 기존 셀프 체크리스트 ----------
         st.divider()
         st.header("5단계 · 규정 위반 셀프 체크리스트")
@@ -1959,57 +1900,19 @@ with tab_check:
         with col_b:
             st.caption("저장하면 점수뿐 아니라 시장 비교, AI 문제 위치 표시, 적용된 검사 기준, 사용자 지정 기준 결과까지 함께 보관됩니다.")
             if st.button("💾 이번 결과를 히스토리에 저장"):
-                record_id = _save_current_result_to_history(
+                record_id = _save_current_diagnosis_to_history(
                     current_user,
                     all_file_results,
                     selected_criteria,
                     custom_rules,
                     feelings,
                     user_tags,
-                    checklist_done,
-                    checklist_total,
                 )
                 if record_id:
                     st.success("내 계정의 진단 히스토리에 저장했어요. 상단의 '히스토리' 탭에서 언제든지 다시 볼 수 있습니다.")
+                    st.rerun()
                 else:
                     st.error("사용자 기록 저장에 실패했습니다.")
-
-        review_col, _ = st.columns([2, 3])
-        with review_col:
-            st.caption("검사가 끝난 직후 이 결과에 대한 리뷰도 남길 수 있어요.")
-            if st.button("💬 이 검사 결과 리뷰 남기기"):
-                record_id = _save_current_result_to_history(
-                    current_user,
-                    all_file_results,
-                    selected_criteria,
-                    custom_rules,
-                    feelings,
-                    user_tags,
-                    checklist_done,
-                    checklist_total,
-                )
-                if record_id:
-                    st.session_state["active_review_record_id"] = record_id
-                    st.rerun()
-                else:
-                    st.error("리뷰를 연결할 진단 기록을 저장하지 못했습니다.")
-
-        active_review_id = st.session_state.get("active_review_record_id")
-        if active_review_id:
-            active_record = _get_history_record(current_user, int(active_review_id))
-            if active_record:
-                st.divider()
-                st.header("💬 검사 결과 리뷰")
-                st.caption("방금 받은 AI 피드백이 실제로 얼마나 도움이 되었는지 남겨주세요. 리뷰는 다음 피드백 개선에 활용됩니다.")
-                _render_review_for_history(
-                    current_user,
-                    active_record,
-                    developer_mode=_is_developer(current_user),
-                    form_context="immediate",
-                )
-                if st.button("리뷰 창 닫기", key="close_immediate_review"):
-                    st.session_state.pop("active_review_record_id", None)
-                    st.rerun()
 
         # ---------- 제출 구성 요약 ----------
         st.divider()
