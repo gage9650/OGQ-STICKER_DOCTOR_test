@@ -12,6 +12,10 @@ import time
 
 import streamlit as st
 import streamlit.components.v1 as components
+try:
+    import streamlit.components.v2 as components_v2
+except Exception:
+    components_v2 = None
 from streamlit_cookies_controller import CookieController, RemoveEmptyElementContainer
 from PIL import Image, ImageDraw
 
@@ -58,6 +62,177 @@ if "_sd_cookie_controller" not in st.session_state:
     st.session_state["_sd_cookie_controller"] = CookieController(key="sd_cookie_controller")
 _cookie_controller = st.session_state["_sd_cookie_controller"]
 RemoveEmptyElementContainer()
+
+
+# 최신 Streamlit의 페이지 DOM에 직접 연결되는 UI 보조 컴포넌트입니다.
+# 브라우저 자동재생 정책 때문에 iframe 내부에서만 재생하던 기존 방식 대신,
+# 실제 3·4단계 실행 버튼의 클릭 이벤트에서 AudioContext를 먼저 활성화합니다.
+_completion_sound_component = None
+if components_v2 is not None:
+    _UI_HELPER_JS = r"""
+export default function(component) {
+    const { data } = component;
+    const state = window.__ogqStickerDoctorUI || (window.__ogqStickerDoctorUI = {
+        audioContext: null,
+        clickHandler: null,
+        sidebarObserver: null,
+        bodyObserver: null,
+        sidebarButton: null,
+        lastPlayNonce: null,
+    });
+
+    function createAudioContext() {
+        try {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return null;
+            if (!state.audioContext || state.audioContext.state === 'closed') {
+                state.audioContext = new AC();
+            }
+            if (state.audioContext.state === 'suspended') {
+                state.audioContext.resume().catch(() => {});
+            }
+            return state.audioContext;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function playDing() {
+        const ctx = createAudioContext();
+        if (!ctx) return;
+        try {
+            const now = ctx.currentTime + 0.01;
+            const gain = ctx.createGain();
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.exponentialRampToValueAtTime(0.40, now + 0.015);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+            gain.connect(ctx.destination);
+
+            const osc1 = ctx.createOscillator();
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(880, now);
+            osc1.frequency.exponentialRampToValueAtTime(1320, now + 0.10);
+            osc1.connect(gain);
+
+            const osc2 = ctx.createOscillator();
+            osc2.type = 'sine';
+            osc2.frequency.setValueAtTime(1320, now + 0.12);
+            osc2.frequency.exponentialRampToValueAtTime(1760, now + 0.24);
+            osc2.connect(gain);
+
+            osc1.start(now);
+            osc1.stop(now + 0.11);
+            osc2.start(now + 0.12);
+            osc2.stop(now + 0.30);
+        } catch (_) {}
+    }
+
+    function onAppClick(event) {
+        const button = event.target.closest && event.target.closest('button');
+        if (!button) return;
+        const label = (button.innerText || button.getAttribute('aria-label') || '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (
+            label.includes('OGQ 시장과 비교하기') ||
+            label.includes('전체 AI 진단 받기')
+        ) {
+            // 사용자 클릭 제스처 안에서 오디오 컨텍스트를 활성화합니다.
+            createAudioContext();
+        }
+    }
+
+    if (!state.clickHandler) {
+        state.clickHandler = onAppClick;
+        document.addEventListener('click', state.clickHandler, true);
+    }
+
+    function ensureSidebarButton() {
+        let button = document.getElementById('ogq-sidebar-reopen');
+        if (!button) {
+            button = document.createElement('button');
+            button.id = 'ogq-sidebar-reopen';
+            button.type = 'button';
+            button.setAttribute('aria-label', '사이드바 다시 열기');
+            button.textContent = '☰  메뉴 열기';
+            button.style.cssText = [
+                'position:fixed',
+                'left:14px',
+                'top:68px',
+                'z-index:1000000',
+                'display:none',
+                'align-items:center',
+                'gap:6px',
+                'height:38px',
+                'padding:0 14px',
+                'border:1px solid #D9DCEA',
+                'border-radius:999px',
+                'background:rgba(255,255,255,.97)',
+                'color:#171A2B',
+                'font:700 13px/1.1 sans-serif',
+                'box-shadow:0 8px 24px rgba(25,31,57,.14)',
+                'cursor:pointer',
+                'backdrop-filter:blur(10px)',
+            ].join(';');
+            button.addEventListener('mouseenter', () => {
+                button.style.transform = 'translateY(-1px)';
+                button.style.boxShadow = '0 11px 28px rgba(25,31,57,.18)';
+            });
+            button.addEventListener('mouseleave', () => {
+                button.style.transform = 'translateY(0)';
+                button.style.boxShadow = '0 8px 24px rgba(25,31,57,.14)';
+            });
+            button.addEventListener('click', () => {
+                const toggle = document.querySelector(
+                    '[data-testid="stSidebarCollapseButton"] button, ' +
+                    '[data-testid="collapsedControl"] button'
+                );
+                if (toggle) toggle.click();
+            });
+            document.body.appendChild(button);
+        }
+        state.sidebarButton = button;
+        return button;
+    }
+
+    function updateSidebarButton() {
+        const button = ensureSidebarButton();
+        const sidebar = document.querySelector('[data-testid="stSidebar"]');
+        const expanded = sidebar && sidebar.getAttribute('aria-expanded') === 'true';
+        button.style.display = expanded ? 'none' : 'flex';
+    }
+
+    const sidebar = document.querySelector('[data-testid="stSidebar"]');
+    if (sidebar) {
+        if (state.sidebarObserver) state.sidebarObserver.disconnect();
+        state.sidebarObserver = new MutationObserver(() => updateSidebarButton());
+        state.sidebarObserver.observe(sidebar, { attributes: true, attributeFilter: ['aria-expanded'] });
+    }
+    if (state.bodyObserver) state.bodyObserver.disconnect();
+    state.bodyObserver = new MutationObserver(() => updateSidebarButton());
+    state.bodyObserver.observe(document.body, { childList: true, subtree: true });
+    updateSidebarButton();
+
+    if (data && data.play && data.nonce !== state.lastPlayNonce) {
+        state.lastPlayNonce = data.nonce;
+        // 버튼 클릭 때 만든 AudioContext가 이미 활성 상태이므로 완료 시점에 재생합니다.
+        setTimeout(playDing, 30);
+    }
+
+    return () => {};
+}
+"""
+    _completion_sound_component = components_v2.component(
+        "ogq_sticker_doctor_ui_helper",
+        html='<div aria-hidden="true"></div>',
+        css=':host { display: none !important; width: 0 !important; height: 0 !important; }',
+        js=_UI_HELPER_JS,
+        isolate_styles=False,
+    )
+
+# 페이지 DOM 보조 컴포넌트를 한 번 등록합니다.
+if _completion_sound_component is not None:
+    _completion_sound_component(data={"play": False, "nonce": 0})
 
 
 st.markdown(
@@ -411,6 +586,36 @@ st.markdown(
         box-shadow: 0 15px 28px rgba(91,99,246,.28) !important;
     }
 
+    /* 주요 실행 버튼의 텍스트/아이콘 대비를 확실하게 고정 */
+    [data-testid="stButton"] button[kind="primary"] *,
+    [data-testid="stFormSubmitButton"] button[kind="primary"] * {
+        color: #FFFFFF !important;
+        text-shadow: 0 1px 2px rgba(20, 24, 48, .12);
+    }
+
+    /* 사이드바를 닫았을 때도 Streamlit 기본 펼치기 토글이 항상 보이도록 보정 */
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="collapsedControl"] {
+        visibility: visible !important;
+        opacity: 1 !important;
+        z-index: 999999 !important;
+    }
+
+    [data-testid="collapsedControl"] button,
+    [data-testid="stSidebarCollapseButton"] button {
+        color: #171A2B !important;
+        background: rgba(255,255,255,.97) !important;
+        border: 1px solid #D9DCEA !important;
+        border-radius: 12px !important;
+        box-shadow: 0 8px 24px rgba(25,31,57,.12) !important;
+    }
+
+    [data-testid="collapsedControl"] button:hover,
+    [data-testid="stSidebarCollapseButton"] button:hover {
+        background: #FFFFFF !important;
+        border-color: rgba(91,99,246,.30) !important;
+    }
+
     /* =========================================================
        INPUTS
        ========================================================= */
@@ -484,6 +689,45 @@ st.markdown(
         color: var(--sd-ink) !important;
         font-family: 'Noto Sans KR', sans-serif !important;
         font-weight: 800;
+    }
+
+    .sd-stage-heading {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: fit-content;
+        max-width: 100%;
+        margin: 20px 0 6px;
+        padding: 10px 16px 10px 10px;
+        border: 1px solid #E2E5F0;
+        border-radius: 16px;
+        background: rgba(255,255,255,.98);
+        color: #171A2B !important;
+        box-shadow: 0 7px 20px rgba(25,31,57,.06);
+        font-family: 'Jua', 'Noto Sans KR', sans-serif;
+        font-size: clamp(1.12rem, 1.9vw, 1.48rem);
+        font-weight: 800;
+        line-height: 1.2;
+    }
+
+    .sd-stage-heading .step {
+        display: inline-flex;
+        align-items: center;
+        min-height: 32px;
+        padding: 0 11px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, var(--sd-primary), var(--sd-primary-2));
+        color: #FFFFFF !important;
+        font-family: 'Noto Sans KR', sans-serif;
+        font-size: .78rem;
+        font-weight: 800;
+        white-space: nowrap;
+        box-shadow: 0 6px 14px rgba(91,99,246,.22);
+    }
+
+    .sd-stage-heading > span:last-child {
+        color: #171A2B !important;
+        text-shadow: none;
     }
 
     /* =========================================================
@@ -1029,11 +1273,17 @@ def _draw_annotations(file_bytes: bytes, findings: list[dict]) -> Image.Image:
 
 
 def _speak_completion(message: str = "") -> None:
-    """진단 완료 시 브라우저에서 짧은 2음 벨소리(띠링)를 재생한다.
+    """진단/시장 비교 완료 시 짧은 2음 벨소리를 재생합니다."""
+    if _completion_sound_component is not None:
+        _completion_sound_component(
+            data={
+                "play": True,
+                "nonce": int(time.time() * 1000000),
+            }
+        )
+        return
 
-    기존 음성 합성(TTS)은 사용하지 않는다. 브라우저의 자동재생 정책에 의해
-    소리가 차단될 경우를 대비해 수동 재생 버튼을 함께 제공한다.
-    """
+    # 구버전 Streamlit에서는 기존 iframe 방식으로 폴백합니다.
     components.html(
         """
         <div style="font-family:sans-serif; padding:2px 0;">
@@ -1041,49 +1291,33 @@ def _speak_completion(message: str = "") -> None:
         </div>
         <script>
         (() => {
-          let played = false;
-
           function ding() {
             try {
-              const AudioContext = window.AudioContext || window.webkitAudioContext;
-              if (!AudioContext) return;
-
-              const ctx = new AudioContext();
+              const AC = window.AudioContext || window.webkitAudioContext;
+              if (!AC) return;
+              const ctx = new AC();
               const now = ctx.currentTime;
-
               const gain = ctx.createGain();
               gain.gain.setValueAtTime(0.0001, now);
               gain.gain.exponentialRampToValueAtTime(0.42, now + 0.015);
               gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
               gain.connect(ctx.destination);
-
               const osc1 = ctx.createOscillator();
               osc1.type = 'sine';
               osc1.frequency.setValueAtTime(880, now);
               osc1.frequency.exponentialRampToValueAtTime(1320, now + 0.10);
               osc1.connect(gain);
-
               const osc2 = ctx.createOscillator();
               osc2.type = 'sine';
               osc2.frequency.setValueAtTime(1320, now + 0.12);
               osc2.frequency.exponentialRampToValueAtTime(1760, now + 0.22);
               osc2.connect(gain);
-
-              osc1.start(now);
-              osc1.stop(now + 0.11);
-              osc2.start(now + 0.12);
-              osc2.stop(now + 0.28);
-
+              osc1.start(now); osc1.stop(now + 0.11);
+              osc2.start(now + 0.12); osc2.stop(now + 0.28);
               setTimeout(() => { try { ctx.close(); } catch (_) {} }, 650);
-              played = true;
-            } catch (_) {
-              // 브라우저 자동재생/AudioContext 제한 시 수동 버튼으로 재생 가능
-            }
+            } catch (_) {}
           }
-
-          const btn = document.getElementById('ding-btn');
-          btn?.addEventListener('click', ding);
-          setTimeout(() => { if (!played) ding(); }, 100);
+          document.getElementById('ding-btn')?.addEventListener('click', ding);
         })();
         </script>
         """,
@@ -1846,7 +2080,10 @@ with tab_check:
 
         # ---------- 3단계: 시장 비교 ----------
         st.divider()
-        st.header("3단계 · OGQ 시장 비교")
+        st.markdown(
+            '<div class="sd-stage-heading"><span class="step">3단계</span><span>OGQ 시장 비교</span></div>',
+            unsafe_allow_html=True,
+        )
         st.caption("입력한 느낌과 태그를 키워드로 OGQ 마켓의 관련 스티커를 찾고, AI가 공통점·차이점·장단점을 분석합니다.")
 
         auto_diagnose_after_market = st.checkbox(
@@ -1967,6 +2204,9 @@ with tab_check:
 
                     except OGQAPIError as exc:
                         st.error(f"OGQ 시장 검색에 실패했어요: {exc}")
+                    else:
+                        # 3단계 시장 비교가 정상적으로 끝난 시점에 완료음을 재생합니다.
+                        _speak_completion("OGQ 시장 비교가 완료되었습니다.")
 
         # 시장 비교 완료 직후 자동 진단 옵션이 켜져 있으면 바로 AI 문제 표시까지 진행
         if auto_diagnose_after_market and st.session_state.get("market_results") and st.session_state.get("market_context"):
@@ -2105,7 +2345,10 @@ with tab_check:
 
         # ---------- 4단계: AI 진단 + 위치 표시 ----------
         st.divider()
-        st.header("4단계 · AI가 어디가 문제인지 표시")
+        st.markdown(
+            '<div class="sd-stage-heading"><span class="step">4단계</span><span>AI가 어디가 문제인지 표시</span></div>',
+            unsafe_allow_html=True,
+        )
         st.caption("선택한 검사 영역과 시장 비교 자료를 바탕으로 문제 영역을 표시하고, 무엇을/왜/어떻게 고칠지 설명합니다.")
 
         market_context = st.session_state.get("market_context", "")
