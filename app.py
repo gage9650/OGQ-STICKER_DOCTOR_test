@@ -19,7 +19,7 @@ except Exception:
 from streamlit_cookies_controller import CookieController, RemoveEmptyElementContainer
 from PIL import Image, ImageDraw
 
-from checker import SPECS, check_image
+from checker import SPECS, check_image, classify_type
 from diagnosis import diagnose_detailed, render_diagnosis_markdown
 from criteria import DEFAULT_CRITERIA, PLATFORM_PRESETS, build_selected_criteria
 from market_analysis import (
@@ -79,6 +79,9 @@ export default function(component) {
         bodyObserver: null,
         sidebarButton: null,
         lastPlayNonce: null,
+        menuButton: null,
+        menuClickHandler: null,
+        lastActivatedTab: null,
     });
 
     function createAudioContext() {
@@ -147,75 +150,95 @@ export default function(component) {
         document.addEventListener('click', state.clickHandler, true);
     }
 
-    function ensureSidebarButton() {
-        let button = document.getElementById('ogq-sidebar-reopen');
+    function findWorkspaceTab(label) {
+        const tabs = Array.from(document.querySelectorAll('button[role="tab"], [data-baseweb="tab"]'));
+        return tabs.find((tab) => (tab.innerText || '').replace(/\s+/g, ' ').trim() === label) || null;
+    }
+
+    function getSidebarToggle() {
+        return document.querySelector(
+            '[data-testid="stSidebarCollapseButton"] button, ' +
+            '[data-testid="collapsedControl"] button'
+        );
+    }
+
+    function toggleSidebar() {
+        const toggle = getSidebarToggle();
+        if (toggle) toggle.click();
+    }
+
+    function ensureMenuUI() {
+        let button = document.getElementById('ogq-main-menu');
         if (!button) {
             button = document.createElement('button');
-            button.id = 'ogq-sidebar-reopen';
+            button.id = 'ogq-main-menu';
             button.type = 'button';
-            button.setAttribute('aria-label', '사이드바 다시 열기');
-            button.textContent = '☰  메뉴 열기';
+            button.setAttribute('aria-label', '메뉴 열기');
+            button.setAttribute('aria-expanded', 'false');
+            button.innerHTML = '☰ <span>메뉴</span>';
             button.style.cssText = [
-                'position:fixed',
-                'left:14px',
-                'top:68px',
-                'z-index:1000000',
-                'display:none',
-                'align-items:center',
-                'gap:6px',
-                'height:38px',
-                'padding:0 14px',
-                'border:1px solid #D9DCEA',
-                'border-radius:999px',
-                'background:rgba(255,255,255,.97)',
-                'color:#171A2B',
-                'font:700 13px/1.1 sans-serif',
-                'box-shadow:0 8px 24px rgba(25,31,57,.14)',
+                'position:fixed', 'left:14px', 'top:116px', 'z-index:1000001',
+                'display:none', 'align-items:center', 'gap:7px', 'height:42px', 'padding:0 16px',
+                'border:1px solid #D9DCEA', 'border-radius:13px', 'background:#ffffff',
+                'color:#171A2B', 'font:800 14px/1 sans-serif', 'box-shadow:0 10px 28px rgba(25,31,57,.15)',
                 'cursor:pointer',
-                'backdrop-filter:blur(10px)',
             ].join(';');
-            button.addEventListener('mouseenter', () => {
-                button.style.transform = 'translateY(-1px)';
-                button.style.boxShadow = '0 11px 28px rgba(25,31,57,.18)';
-            });
-            button.addEventListener('mouseleave', () => {
-                button.style.transform = 'translateY(0)';
-                button.style.boxShadow = '0 8px 24px rgba(25,31,57,.14)';
-            });
             button.addEventListener('click', () => {
-                const toggle = document.querySelector(
-                    '[data-testid="stSidebarCollapseButton"] button, ' +
-                    '[data-testid="collapsedControl"] button'
-                );
-                if (toggle) toggle.click();
+                toggleSidebar();
+                button.setAttribute('aria-expanded', 'true');
             });
             document.body.appendChild(button);
         }
-        state.sidebarButton = button;
+        state.menuButton = button;
         return button;
     }
 
-    function updateSidebarButton() {
-        const button = ensureSidebarButton();
+    function updateMenuVisibility(authenticated) {
+        const button = ensureMenuUI();
         const sidebar = document.querySelector('[data-testid="stSidebar"]');
         const expanded = sidebar && sidebar.getAttribute('aria-expanded') === 'true';
-        button.style.display = expanded ? 'none' : 'flex';
+        const visible = authenticated === true && !expanded;
+        button.style.display = visible ? 'flex' : 'none';
+        button.setAttribute('aria-expanded', expanded ? 'false' : 'false');
+
+        // 로그인 후에는 메인 탭 UI를 숨기고, 실제 사이드바의 메뉴 버튼으로 이동합니다.
+        document.querySelectorAll('div[role="tablist"]').forEach((tablist) => {
+            const labels = Array.from(tablist.querySelectorAll('[role="tab"], [data-baseweb="tab"]'))
+                .map((tab) => (tab.innerText || '').replace(/\s+/g, ' ').trim());
+            if (labels.includes('🩺 검사하기') && labels.includes('📚 히스토리') && labels.includes('💬 리뷰')) {
+                tablist.style.display = authenticated === true ? 'none' : '';
+            }
+        });
+    }
+
+    function activateTargetTab(target) {
+        if (!target || state.lastActivatedTab === target) return;
+        const labelMap = { check: '🩺 검사하기', history: '📚 히스토리', reviews: '💬 리뷰' };
+        const tab = findWorkspaceTab(labelMap[target]);
+        if (!tab) return;
+        state.lastActivatedTab = target;
+        tab.click();
     }
 
     const sidebar = document.querySelector('[data-testid="stSidebar"]');
     if (sidebar) {
         if (state.sidebarObserver) state.sidebarObserver.disconnect();
-        state.sidebarObserver = new MutationObserver(() => updateSidebarButton());
+        state.sidebarObserver = new MutationObserver(() => updateMenuVisibility(Boolean(data && data.authenticated)));
         state.sidebarObserver.observe(sidebar, { attributes: true, attributeFilter: ['aria-expanded'] });
     }
+
     if (state.bodyObserver) state.bodyObserver.disconnect();
-    state.bodyObserver = new MutationObserver(() => updateSidebarButton());
+    state.bodyObserver = new MutationObserver(() => {
+        updateMenuVisibility(Boolean(data && data.authenticated));
+        activateTargetTab(data && data.target_tab);
+    });
     state.bodyObserver.observe(document.body, { childList: true, subtree: true });
-    updateSidebarButton();
+
+    updateMenuVisibility(Boolean(data && data.authenticated));
+    activateTargetTab(data && data.target_tab);
 
     if (data && data.play && data.nonce !== state.lastPlayNonce) {
         state.lastPlayNonce = data.nonce;
-        // 버튼 클릭 때 만든 AudioContext가 이미 활성 상태이므로 완료 시점에 재생합니다.
         setTimeout(playDing, 30);
     }
 
@@ -232,7 +255,7 @@ export default function(component) {
 
 # 페이지 DOM 보조 컴포넌트를 한 번 등록합니다.
 if _completion_sound_component is not None:
-    _completion_sound_component(data={"play": False, "nonce": 0})
+    _completion_sound_component(data={"play": False, "nonce": 0, "authenticated": False})
 
 
 st.markdown(
@@ -1128,11 +1151,27 @@ def _render_auth_gate() -> str | None:
     """아이디/비밀번호 로그인. 새로고침 시 브라우저 세션 쿠키로 복원합니다."""
     restored_user = _restore_auth_from_cookie()
     if restored_user:
+        if "sd_active_tab" not in st.session_state:
+            st.session_state["sd_active_tab"] = "check"
+
         with st.sidebar:
             st.markdown("### 👤 로그인 상태")
             st.success(f"{restored_user}님")
             st.caption("현재 로그인한 계정")
-            if st.button("로그아웃", key="auth_logout"):
+            st.markdown("### 🧭 메뉴")
+
+            if st.button("🩺 검사하기", key="sidebar_nav_check", use_container_width=True):
+                st.session_state["sd_active_tab"] = "check"
+                st.rerun()
+            if st.button("📚 히스토리", key="sidebar_nav_history", use_container_width=True):
+                st.session_state["sd_active_tab"] = "history"
+                st.rerun()
+            if st.button("💬 리뷰", key="sidebar_nav_reviews", use_container_width=True):
+                st.session_state["sd_active_tab"] = "reviews"
+                st.rerun()
+
+            st.divider()
+            if st.button("로그아웃", key="auth_logout", use_container_width=True):
                 _logout()
         return restored_user
 
@@ -1184,6 +1223,15 @@ def _render_auth_gate() -> str | None:
 
 
 current_user = _render_auth_gate()
+if _completion_sound_component is not None:
+    _completion_sound_component(
+        data={
+            "play": False,
+            "nonce": 0,
+            "authenticated": bool(current_user),
+            "target_tab": str(st.session_state.get("sd_active_tab", "check")),
+        }
+    )
 if not current_user:
     st.stop()
 
@@ -1935,15 +1983,16 @@ def _run_ai_diagnostics(
 
 st.markdown('<div class="sd-kicker">WORKSPACE</div>', unsafe_allow_html=True)
 
-tab_check, tab_history, tab_reviews = st.tabs(["🩺 검사하기", "📚 히스토리", "💬 리뷰"])
+# 사이드바에서 선택한 메뉴를 기준으로 실제 화면을 전환합니다.
+# st.tabs의 브라우저 탭을 JS로 강제 클릭하는 방식 대신 Streamlit이 직접 렌더링하므로
+# 메뉴 클릭 후에도 히스토리/리뷰 화면이 확실하게 표시됩니다.
+active_tab = st.session_state.get("sd_active_tab", "check")
 
-with tab_history:
+if active_tab == "history":
     _render_history_center(current_user)
-
-with tab_reviews:
+elif active_tab == "reviews":
     _render_review_center(current_user)
-
-with tab_check:
+else:
     # ---------- 0단계: 검사 기준 ----------
     st.header("검사 기준 설정")
     st.caption("OGQ 공개 가이드를 기본으로 불러오고, 원하는 검사 항목만 선택하거나 나만의 기준을 원하는 만큼 추가할 수 있어요.")
@@ -2023,7 +2072,7 @@ with tab_check:
     user_tags = [t.strip().lstrip("#") for t in tag_text.split(",") if t.strip()]
 
     st.header("2단계 · 스티커 업로드")
-    st.caption("OGQ 공개 제작 가이드 기준: 메인 240x240 · 스티커 740x640 · 탭 96x74, 각 1MB 이하, RGB, 투명 배경")
+    st.caption("OGQ 공개 제작 가이드 기준: 메인 240x240 · 스티커 740x640 · 탭 96x74, 각 1MB 이하, RGB, 투명 배경 · 파일마다 이미지 종류를 직접 지정할 수 있어요.")
 
     files = st.file_uploader(
         "스티커 이미지를 올려주세요 (여러 장 가능)",
@@ -2044,9 +2093,45 @@ with tab_check:
         type_counts = {name: 0 for name in SPECS}
         all_file_results = []
 
-        for f in files:
+        st.info("각 파일이 메인 이미지인지, 스티커 이미지인지, 탭 이미지인지 직접 지정해주세요.\n파일 크기가 규격과 맞는 경우에는 자동으로 해당 종류를 먼저 선택해 드립니다.")
+
+        def _guess_image_type(filename, width=None, height=None):
+            # 1순위: 실제 해상도가 OGQ 규격과 정확히 일치하면 그 종류를 자동 선택
+            if width is not None and height is not None:
+                detected = classify_type(width, height)
+                if detected:
+                    return detected
+
+            # 2순위: 파일명에 흔한 종류 표기가 있으면 보조적으로 추정
+            lowered = filename.lower()
+            if any(token in lowered for token in ("tab", "탭")):
+                return "탭 이미지"
+            if any(token in lowered for token in ("main", "메인", "대표", "thumbnail", "thumb")):
+                return "메인 이미지"
+            return "스티커 이미지"
+
+        for index, f in enumerate(files):
             file_bytes = f.getvalue()
-            img_type, results = check_image(file_bytes, f.name)
+            try:
+                preview_img = Image.open(io.BytesIO(file_bytes))
+                width, height = preview_img.size
+            except Exception:
+                width, height = None, None
+
+            detected_type = classify_type(width, height) if width is not None and height is not None else None
+            default_type = _guess_image_type(f.name, width, height)
+            default_index = list(SPECS.keys()).index(default_type)
+            file_hash = hashlib.sha256(file_bytes).hexdigest()[:16]
+
+            selected_type = st.selectbox(
+                f"{f.name} · 이미지 종류",
+                list(SPECS.keys()),
+                index=default_index,
+                key=f"image_type_{file_hash}",
+                help="이 파일을 OGQ 제출 구성에서 어떤 이미지로 사용할지 지정합니다.",
+            )
+
+            img_type, results = check_image(file_bytes, f.name, expected_type=selected_type)
             if img_type:
                 type_counts[img_type] += 1
 
@@ -2056,14 +2141,19 @@ with tab_check:
                     "bytes": file_bytes,
                     "mime": f.type or "image/png",
                     "img_type": img_type,
+                    "expected_type": selected_type,
+                    "detected_type": detected_type,
                     "results": results,
                 }
             )
 
+            detected_text = detected_type or "일치하는 규격 없음"
+            st.caption(f"지정: **{selected_type}** · 실제 크기: **{width}×{height}px** · 크기만으로 추정: **{detected_text}**")
+
             fail_count = sum(1 for grade, _, _ in results if grade == "fail")
             icon = "❌" if fail_count else "✅"
             with st.expander(
-                f"{icon} {f.name} — 문제 {fail_count}건",
+                f"{icon} {f.name} — {selected_type} · 문제 {fail_count}건",
                 expanded=fail_count > 0,
             ):
                 col1, col2 = st.columns([1, 2])
@@ -2077,6 +2167,13 @@ with tab_check:
                             st.warning(f"**{item}** — {msg}")
                         else:
                             st.error(f"**{item}** — {msg}")
+
+        # 시장 비교/AI 이미지 비교에는 제출용 스티커 이미지를 우선 사용한다.
+        comparison_file = next(
+            (item for item in all_file_results
+             if item.get("expected_type") == "스티커 이미지" and item.get("img_type") == "스티커 이미지"),
+            all_file_results[0] if all_file_results else None,
+        )
 
         # ---------- 3단계: 시장 비교 ----------
         st.divider()
@@ -2139,7 +2236,7 @@ with tab_check:
                         # 업로드 이미지와 OGQ 검색 결과의 강한 시각 일치 신호를 먼저 계산
                         from market_analysis import annotate_visual_match_hints
                         market_results = annotate_visual_match_hints(
-                            all_file_results[0]["bytes"], market_results
+                            comparison_file["bytes"], market_results
                         )
                         # 강한 일치 신호가 있는 항목을 앞쪽으로 우선 배치
                         market_results.sort(
@@ -2161,8 +2258,8 @@ with tab_check:
                                     analysis, error_message = _generate_market_ai(
                                         gemini_key,
                                         market_prompt,
-                                        all_file_results[0]["bytes"],
-                                        all_file_results[0]["mime"],
+                                        comparison_file["bytes"],
+                                        comparison_file["mime"],
                                         market_results[:8],
                                         max_output_tokens=1700,
                                     )
@@ -2604,12 +2701,12 @@ with tab_check:
     else:
         st.info("이미지를 올리면 OGQ 심사 기준에 맞는지 바로 검사합니다.")
 
-# ---------- 화면 최하단 카피라이트 ----------
-st.markdown(
+    # ---------- 화면 최하단 카피라이트 ----------
+    st.markdown(
     """
     <div style="text-align:center; margin:48px 0 16px; padding-top:18px; border-top:1px solid #e5e7eb; color:#98a2b3; font-size:0.82rem;">
         © 2026 OGQ Sticker Doctor. All rights reserved.
     </div>
     """,
     unsafe_allow_html=True,
-)
+    )

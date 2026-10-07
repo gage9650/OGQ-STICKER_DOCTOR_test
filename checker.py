@@ -51,12 +51,15 @@ def check_margin(img):
     return ratio, f"그림이 캔버스의 {ratio:.0%}를 차지해요."
 
 
-def check_image(file_bytes, filename):
-    """이미지 1장에 대해 모든 검사를 실행하고 결과 목록을 돌려준다.
+def check_image(file_bytes, filename, expected_type=None):
+    """이미지 1장을 검사한다. expected_type이 지정되면 사용자가 지정한 종류의 규격과 비교한다.
     결과 형식: (등급, 검사항목, 설명) — 등급은 pass / warn / fail"""
     results = []
     img = Image.open(io.BytesIO(file_bytes))
     w, h = img.size
+
+    if expected_type not in SPECS:
+        expected_type = None
 
     # 검사 1: 파일 형식 (스티커는 투명 배경이 필요하므로 PNG가 표준)
     if img.format == "PNG":
@@ -67,11 +70,24 @@ def check_image(file_bytes, filename):
                         "(확장자만 바꾸면 심사에서 거절돼요 — 원본부터 PNG로 내보내야 해요)"))
 
     # 검사 2: 크기 규격
-    img_type = classify_type(w, h)
-    if img_type:
+    detected_type = classify_type(w, h)
+    if expected_type:
+        ew, eh = SPECS[expected_type]
+        if (w, h) == (ew, eh):
+            img_type = expected_type
+            results.append(("pass", "크기 규격", f"{w}x{h}px — 지정한 '{expected_type}' 규격에 맞아요."))
+        else:
+            img_type = None
+            detected_note = f" 현재 크기만 보면 '{detected_type}' 규격으로 보입니다." if detected_type else " 현재 크기로는 다른 OGQ 규격과도 일치하지 않습니다."
+            results.append(("fail", "크기 규격",
+                            f"'{expected_type}'로 지정했지만 현재 {w}x{h}px입니다. "
+                            f"'{expected_type}' 규격은 {ew}x{eh}px입니다.{detected_note}"))
+    elif detected_type:
+        img_type = detected_type
         results.append(("pass", "크기 규격", f"{w}x{h}px — '{img_type}' 규격에 맞아요."))
     else:
-        spec_text = ", ".join(f"{n} {s[0]}x{s[1]}" for n, s in SPECS.items())
+        img_type = None
+        spec_text = ", ".join(f"{n} {spec[0]}x{spec[1]}" for n, spec in SPECS.items())
         results.append(("fail", "크기 규격",
                         f"{w}x{h}px — OGQ 규격({spec_text})에 맞지 않아요."))
 
